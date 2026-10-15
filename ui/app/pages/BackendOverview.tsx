@@ -4303,6 +4303,10 @@ function ServiceSankeyTab({
 // ===========================================================================
 // Incident Radar — animated sonar popup
 // ===========================================================================
+function normalizeDependencyServiceName(name: unknown): string {
+  return String(name ?? "").trim().toLocaleLowerCase();
+}
+
 function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: {
   svc: any; dependenciesData: any[]; svcDetailsData: any[]; onClose: () => void;
 }) {
@@ -4318,16 +4322,20 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
     const m = new Map<string, Set<string>>();
     dependenciesData.forEach((d: any) => {
       if (!d.Caller || !d.Callee) return;
-      if (!m.has(d.Callee)) m.set(d.Callee, new Set());
-      m.get(d.Callee)!.add(d.Caller);
+      const caller = normalizeDependencyServiceName(d.Caller);
+      const callee = normalizeDependencyServiceName(d.Callee);
+      if (!caller || !callee) return;
+      if (!m.has(callee)) m.set(callee, new Set());
+      m.get(callee)!.add(caller);
     });
     return m;
   }, [dependenciesData]);
 
   const { nodePositions, maxDepth, impactSummary, topImpacted, pathSummary } = useMemo(() => {
     const visited = new Map<string, number>();
-    visited.set(svc.Service, 0);
-    const queue: { name: string; depth: number }[] = [{ name: svc.Service, depth: 0 }];
+    const rootService = normalizeDependencyServiceName(svc.Service);
+    visited.set(rootService, 0);
+    const queue: { name: string; depth: number }[] = [{ name: rootService, depth: 0 }];
     let md = 0;
     while (queue.length) {
       const { name, depth } = queue.shift()!;
@@ -4341,13 +4349,15 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
     }
 
     const impactNodes = [...visited.entries()]
-      .filter(([name]) => name !== svc.Service)
+      .filter(([name]) => name !== rootService)
       .map(([name, depth]) => {
-        const s = svcDetailsData.find((d: any) => d.Service === name);
+        const edge = dependenciesData.find((d: any) => normalizeDependencyServiceName(d.Caller) === name);
+        const displayName = edge?.Caller ?? name;
+        const s = svcDetailsData.find((d: any) => normalizeDependencyServiceName(d.Service) === name);
         const failureRate = s?.FailureRate ?? 0;
         const status = s?.Status ?? "HEALTHY";
         return {
-          name,
+          name: displayName,
           depth,
           failureRate,
           status,
@@ -4357,12 +4367,12 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
       .sort((a, b) => a.depth - b.depth || b.failureRate - a.failureRate);
 
     const byDepth = new Map<number, string[]>();
-    visited.forEach((d, name) => { if (d === 0) return; if (!byDepth.has(d)) byDepth.set(d, []); byDepth.get(d)!.push(name); });
+    impactNodes.forEach(({ depth, name }) => { if (!byDepth.has(depth)) byDepth.set(depth, []); byDepth.get(depth)!.push(name); });
     const CX = 280, CY = 280, maxR = 220;
     const positions: { name: string; depth: number; x: number; y: number; angleDeg: number }[] = [];
     const ringDepths = [...byDepth.keys()].sort((a, b) => a - b);
     ringDepths.forEach(depth => {
-      const names = [...(byDepth.get(depth) ?? [])].sort((a, b) => ((svcDetailsData.find((d: any) => d.Service === b)?.FailureRate ?? 0) - (svcDetailsData.find((d: any) => d.Service === a)?.FailureRate ?? 0)) || a.localeCompare(b));
+      const names = [...(byDepth.get(depth) ?? [])].sort((a, b) => ((svcDetailsData.find((d: any) => normalizeDependencyServiceName(d.Service) === normalizeDependencyServiceName(b))?.FailureRate ?? 0) - (svcDetailsData.find((d: any) => normalizeDependencyServiceName(d.Service) === normalizeDependencyServiceName(a))?.FailureRate ?? 0)) || a.localeCompare(b));
       const ringR = (depth / Math.max(md || 1, 1)) * maxR;
       const count = Math.min(names.length, 14);
       for (let i = 0; i < count; i++) {
@@ -4568,7 +4578,7 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
 
           {/* Service nodes */}
           {nodePositions.map(({ name, depth, x, y, angleDeg }) => {
-            const svcData = svcDetailsData.find((s: any) => s.Service === name);
+            const svcData = svcDetailsData.find((s: any) => normalizeDependencyServiceName(s.Service) === normalizeDependencyServiceName(name));
             const isHot = (svcData?.FailureRate ?? 0) >= 2 || svcData?.Status === "PROBLEM";
             const lit = isLit(angleDeg);
             const nodeClr = isHot ? ORANGE : RADAR_GREEN;
@@ -6746,38 +6756,41 @@ export const BackendOverview = () => {
   }, [scorecardData]);
 
   // ─── Dependencies ───
-  const dependenciesData = useMemo(() => {
+  const allDependenciesData = useMemo(() => {
     if (!dependenciesResult.data?.records) return [];
+    return dependenciesResult.data.records
+      .map((r) => ({
+        Caller: String(r["Caller"] ?? ""),
+        CallerId: String(r["CallerId"] ?? ""),
+        Callee: String(r["Callee"] ?? ""),
+        CalleeId: String(r["CalleeId"] ?? ""),
+      }))
+      .filter((d) => d.Caller && d.Callee);
+  }, [dependenciesResult.data]);
+
+  const dependenciesData = useMemo(() => {
     // Build top-N service set by request count
     let allowedCallers: Set<string> | null = null;
     if (depTopN > 0 && svcDetailsData.length > 0) {
       const sorted = [...svcDetailsData].sort((a, b) => (b.Requests ?? 0) - (a.Requests ?? 0));
-      allowedCallers = new Set(sorted.slice(0, depTopN).map((s) => s.Service));
+      allowedCallers = new Set(sorted.slice(0, depTopN).map((s) => normalizeDependencyServiceName(s.Service)));
     }
-    return dependenciesResult.data.records
-      .map((r) => ({
-        Caller: (r["Caller"] as string) ?? "",
-        CallerId: (r["CallerId"] as string) ?? "",
-        Callee: (r["Callee"] as string) ?? "",
-        CalleeId: (r["CalleeId"] as string) ?? "",
-      }))
-      .filter((d) => !allowedCallers || allowedCallers.has(d.Caller));
-  }, [dependenciesResult.data, svcDetailsData, depTopN]);
+    return allDependenciesData.filter((d) => !allowedCallers || allowedCallers.has(normalizeDependencyServiceName(d.Caller)));
+  }, [allDependenciesData, svcDetailsData, depTopN]);
 
   // Map service names → entity IDs from dependency edges (covers services not in top N details)
   const depsEntityIdMap = useMemo(() => {
     const m = new Map<string, string>();
-    if (!dependenciesResult.data?.records) return m;
-    dependenciesResult.data.records.forEach((r) => {
-      const caller = (r["Caller"] as string) ?? "";
-      const callerId = (r["CallerId"] as string) ?? "";
-      const callee = (r["Callee"] as string) ?? "";
-      const calleeId = (r["CalleeId"] as string) ?? "";
+    allDependenciesData.forEach((r) => {
+      const caller = r.Caller;
+      const callerId = r.CallerId;
+      const callee = r.Callee;
+      const calleeId = r.CalleeId;
       if (caller && callerId) m.set(caller, callerId);
       if (callee && calleeId) m.set(callee, calleeId);
     });
     return m;
-  }, [dependenciesResult.data]);
+  }, [allDependenciesData]);
 
   // Service details map for blast radius graph tooltips
   const serviceDetailsMap = useMemo(() => {
@@ -19145,15 +19158,19 @@ export const BackendOverview = () => {
                 const hotSvcs = svcDetailsData.filter((s: any) => s.Status === "PROBLEM" || (s.FailureRate ?? 0) >= 2);
                 // callerMap: callee → set of callers (who depends on this service)
                 const irCallerMap = new Map<string, Set<string>>();
-                dependenciesData.forEach((d: any) => {
+                allDependenciesData.forEach((d: any) => {
                   if (!d.Caller || !d.Callee) return;
-                  if (!irCallerMap.has(d.Callee)) irCallerMap.set(d.Callee, new Set());
-                  irCallerMap.get(d.Callee)!.add(d.Caller);
+                  const caller = normalizeDependencyServiceName(d.Caller);
+                  const callee = normalizeDependencyServiceName(d.Callee);
+                  if (!caller || !callee) return;
+                  if (!irCallerMap.has(callee)) irCallerMap.set(callee, new Set());
+                  irCallerMap.get(callee)!.add(caller);
                 });
                 // BFS upstream: how many services are impacted when this service fails
                 const getUpstream = (svc: string) => {
-                  const visited = new Set<string>([svc]);
-                  const queue: Array<{ name: string; depth: number }> = [{ name: svc, depth: 0 }];
+                  const serviceKey = normalizeDependencyServiceName(svc);
+                  const visited = new Set<string>([serviceKey]);
+                  const queue: Array<{ name: string; depth: number }> = [{ name: serviceKey, depth: 0 }];
                   const direct: string[] = [];
                   let maxDepth = 0;
                   while (queue.length) {
@@ -19166,7 +19183,7 @@ export const BackendOverview = () => {
                       queue.push({ name: caller, depth: depth + 1 });
                     });
                   }
-                  return { direct, all: [...visited].filter(s => s !== svc), maxDepth };
+                  return { direct, all: [...visited].filter(s => s !== serviceKey), maxDepth };
                 };
                 const impactData = hotSvcs.map((s: any) => {
                   const { direct, all, maxDepth } = getUpstream(s.Service);
@@ -19185,9 +19202,15 @@ export const BackendOverview = () => {
                         <KpiCard label="Hot Services" value={hotSvcs.length} rawValue={hotSvcs.length} color={hotSvcs.length > 0 ? RED : GREEN} />
                         <KpiCard label="Services at Risk" value={totalAtRisk} rawValue={totalAtRisk} color={totalAtRisk > 3 ? ORANGE : YELLOW} />
                         <KpiCard label="Fleet Total" value={svcDetailsData.length} rawValue={svcDetailsData.length} color={BLUE} />
+                        <KpiCard label="Dependency Edges" value={allDependenciesData.length} rawValue={allDependenciesData.length} color={allDependenciesData.length > 0 ? GREEN : RED} />
                         <KpiCard label="Blast Coverage" value={svcDetailsData.length > 0 ? `${((totalAtRisk / svcDetailsData.length) * 100).toFixed(0)}%` : "—"} rawValue={(totalAtRisk / Math.max(1, svcDetailsData.length)) * 100} color={totalAtRisk > svcDetailsData.length * 0.3 ? RED : YELLOW} />
                         <KpiCard label="Max Cascade Depth" value={topSvc?.maxDepth ?? 0} rawValue={topSvc?.maxDepth ?? 0} color={ORANGE} />
                       </Flex>
+                      {!dependenciesResult.isLoading && allDependenciesData.length === 0 && (
+                        <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(194,25,48,0.08)", border: "1px solid rgba(194,25,48,0.35)", color: "#ff8a98", fontSize: 12 }}>
+                          No Smartscape service-to-service call edges were returned. Impact values are unavailable, not confirmed zero. Verify Smartscape topology permissions and service call-edge ingestion for this environment.
+                        </div>
+                      )}
                       {hotSvcs.length === 0 ? (
                         <div className="svc-table-tile" style={{ padding: 32, textAlign: "center", opacity: 0.55 }}>
                           <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
@@ -19268,7 +19291,7 @@ export const BackendOverview = () => {
 
       {/* ---- Incident Radar Modal ---- */}
       {radarSvc && (
-        <IncidentRadarModal svc={radarSvc} dependenciesData={dependenciesData} svcDetailsData={svcDetailsData} onClose={() => setRadarSvc(null)} />
+        <IncidentRadarModal svc={radarSvc} dependenciesData={allDependenciesData} svcDetailsData={svcDetailsData} onClose={() => setRadarSvc(null)} />
       )}
 
       {/* ---- Forecast Modal ---- */}

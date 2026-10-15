@@ -647,7 +647,17 @@ An owner-based reliability leaderboard grouped by the `dt.owner` tag on service 
 
 ---
 
-## 19. Cross-Cutting Features
+## 19. Incident Radar Tab
+
+Incident Radar ranks unhealthy services by the number and depth of services that call them. It uses Smartscape `SERVICE → calls → SERVICE` edges to calculate direct callers, total upstream impact, cascade depth, and blast score.
+
+The **Dependency Edges** KPI confirms how many call relationships were loaded. If it is zero, impact values are unavailable rather than confirmed to be zero; verify the `storage:smartscape:read` permission and service call-edge ingestion in the environment.
+
+Click **Radar** on a service to open its movable blast-analysis view. Each ring represents another upstream dependency hop, while orange contacts identify callers that are already elevated.
+
+---
+
+## 20. Cross-Cutting Features
 
 These features appear across multiple tabs.
 
@@ -735,7 +745,7 @@ Annotations appear on every chart's timeline strip and are shared across all use
 
 ---
 
-## 20. Common Workflows
+## 21. Common Workflows
 
 ### Daily Fleet Health Check (SRE Standup)
 
@@ -788,7 +798,7 @@ Annotations appear on every chart's timeline strip and are shared across all use
 
 ---
 
-## 21. Settings Reference
+## 22. Settings Reference
 
 Open Settings via the gear icon in the header.
 
@@ -831,7 +841,7 @@ Both features can be enabled simultaneously; they appear as separate buttons in 
 
 ---
 
-## 22. What's New
+## 23. What's New
 
 ### October 10, 2026 — AI Assist & Dynatrace Intelligence
 

@@ -598,14 +598,12 @@ export function serviceEntityTypesQuery(): string {
 // Service Dependencies
 // ---------------------------------------------------------------------------
 export function serviceDependenciesQuery(): string {
-  return `fetch dt.entity.service
-| filter serviceType != "DATABASE_SERVICE"
-| fieldsAdd calledServices = calls[\`dt.entity.service\`]
-| filter isNotNull(calledServices)
-| expand calledServices
-| fieldsAdd Caller = entity.name, CallerId = id, Callee = coalesce(entityName(calledServices, type:"dt.entity.service"), toString(calledServices)), CalleeId = toString(calledServices)
-| filter isNotNull(Callee)
+  return `smartscapeEdges "calls"
+| filter source_type == "SERVICE" and target_type == "SERVICE"
+| fieldsAdd Caller = getNodeName(source_id), CallerId = toString(source_id), Callee = getNodeName(target_id), CalleeId = toString(target_id)
+| filter isNotNull(Caller) and isNotNull(Callee)
 | fields Caller, CallerId, Callee, CalleeId
+| dedup CallerId, CalleeId
 | sort Caller asc`;
 }
 
