@@ -4309,6 +4309,9 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
   const sweepRef = useRef(0);
   const [sweepDeg, setSweepDeg] = useState(0);
   const frameRef = useRef<number>(0);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const [modalPosition, setModalPosition] = useState({ x: 12, y: 12 });
 
   // callerMap: callee → set of callers (upstream: who depends on this service)
   const callerMap = useMemo(() => {
@@ -4392,6 +4395,60 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
     return () => cancelAnimationFrame(frameRef.current);
   }, []);
 
+  const clampModalPosition = useCallback((x: number, y: number) => {
+    const rect = modalRef.current?.getBoundingClientRect();
+    const width = rect?.width ?? Math.min(640, window.innerWidth - 24);
+    const height = rect?.height ?? Math.min(760, window.innerHeight - 24);
+    return {
+      x: Math.min(Math.max(12, x), Math.max(12, window.innerWidth - width - 12)),
+      y: Math.min(Math.max(12, y), Math.max(12, window.innerHeight - height - 12)),
+    };
+  }, []);
+
+  useEffect(() => {
+    const centerInViewport = () => {
+      const rect = modalRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setModalPosition(current => {
+        if (current.x !== 12 || current.y !== 12) {
+          return clampModalPosition(current.x, current.y);
+        }
+        return clampModalPosition(
+          (window.innerWidth - rect.width) / 2,
+          (window.innerHeight - rect.height) / 2,
+        );
+      });
+    };
+    centerInViewport();
+    window.addEventListener("resize", centerInViewport);
+    return () => window.removeEventListener("resize", centerInViewport);
+  }, [clampModalPosition]);
+
+  const startModalDrag = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: modalPosition.x,
+      originY: modalPosition.y,
+    };
+    const onMove = (moveEvent: MouseEvent) => {
+      if (!dragRef.current) return;
+      setModalPosition(clampModalPosition(
+        dragRef.current.originX + moveEvent.clientX - dragRef.current.startX,
+        dragRef.current.originY + moveEvent.clientY - dragRef.current.startY,
+      ));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [clampModalPosition, modalPosition]);
+
   const RADAR_GREEN = "#00FF41";
   const CX = 280, CY = 280, maxR = 220;
   const sweepRad = ((sweepDeg - 90) * Math.PI) / 180;
@@ -4404,11 +4461,33 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
   const isLit = (angleDeg: number) => ((angleDeg - sweepDeg + 360) % 360) < TRAIL_DEG;
 
   return createPortal(
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.80)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ background: "rgba(2,8,2,0.99)", border: `1px solid ${RADAR_GREEN}44`, borderRadius: 16, padding: "20px 24px", width: 640, maxWidth: "95vw", boxShadow: `0 0 60px ${RADAR_GREEN}18, 0 0 120px rgba(0,0,0,0.8)` }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.80)", backdropFilter: "blur(4px)" }} onClick={onClose}>
+      <div
+        ref={modalRef}
+        style={{
+          position: "fixed",
+          left: modalPosition.x,
+          top: modalPosition.y,
+          background: "rgba(2,8,2,0.99)",
+          border: `1px solid ${RADAR_GREEN}44`,
+          borderRadius: 16,
+          padding: "16px 20px",
+          width: 640,
+          maxWidth: "calc(100vw - 24px)",
+          maxHeight: "calc(100vh - 24px)",
+          overflowY: "auto",
+          boxSizing: "border-box",
+          boxShadow: `0 0 60px ${RADAR_GREEN}18, 0 0 120px rgba(0,0,0,0.8)`,
+        }}
+        onClick={e => e.stopPropagation()}
+      >
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+        <div
+          onMouseDown={startModalDrag}
+          style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, cursor: "move", userSelect: "none" }}
+          title="Drag to move Incident Radar"
+        >
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, color: RADAR_GREEN, letterSpacing: 4, textTransform: "uppercase", marginBottom: 3, fontFamily: "monospace" }}>◉ INCIDENT RADAR — BLAST ANALYSIS</div>
             <div style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>{svc.Service}</div>
@@ -4442,7 +4521,18 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
         </div>
 
         {/* Radar SVG */}
-        <svg width={560} height={560} style={{ display: "block", margin: "0 auto" }}>
+        <svg
+          viewBox="0 0 560 560"
+          style={{
+            display: "block",
+            width: "100%",
+            maxWidth: 560,
+            height: "auto",
+            maxHeight: "calc(100vh - 340px)",
+            minHeight: 280,
+            margin: "0 auto",
+          }}
+        >
           <defs>
             <radialGradient id="ir-origin-glow" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor={RED} stopOpacity={0.55} />
@@ -19228,4 +19318,3 @@ export const BackendOverview = () => {
     </CorrelationsContext.Provider>
   );
 };
-

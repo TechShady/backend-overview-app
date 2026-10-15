@@ -3,7 +3,7 @@
   "environmentUrl": "https://guu84124.apps.dynatrace.com",
   "app": {
     "name": "Backend Overview",
-    "version": "0.39.32",
+    "version": "0.39.33",
     "description": "Not an official Dynatrace app https://github.com/TechShady/backend-overview-app",
     "id": "my.backend.overview.app",
     "scopes": [
