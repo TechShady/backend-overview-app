@@ -1,7 +1,7 @@
 {
-  "name": "services-overview-app",
+  "name": "backend-overview-app",
   "version": "0.0.0",
-  "description": "This Service Overview project was created by myself, an SE of Dynatrace. This is not an official Dynatrace application and it is not something you can open a support ticket on. You may create an issue on the github repository, however there is no guaruntee it will be addressed (this isn't my primary job, just a fun project). Feel free to fork the repository (https://github.com/TechShady/services-overview-app) for your own use as well.",
+  "description": "This Backend Overview project was created by myself, an SE of Dynatrace. This is not an official Dynatrace application and it is not something you can open a support ticket on. You may create an issue on the github repository, however there is no guaruntee it will be addressed (this isn't my primary job, just a fun project). Feel free to fork the repository (https://github.com/TechShady/backend-overview-app) for your own use as well.",
   "scripts": {
     "predeploy": "node -e \"const v=process.versions.node.split('.')[0]; if(v!=='22'){console.error('\\n[predeploy] Node 22.x is required by dt-app. Current: '+process.version+'\\nUse nvm use 22 (or nvm use) and retry.\\n'); process.exit(1)}\"",
     "build": "dt-app build",
@@ -23,6 +23,7 @@
   "license": "ISC",
   "dependencies": {
     "@dynatrace-sdk/app-environment": "^1.1.4",
+    "@dynatrace-sdk/client-davis-copilot": "^1.0.0",
     "@dynatrace-sdk/client-document": "^1.30.0",
     "@dynatrace-sdk/client-query": "^1.21.2",
     "@dynatrace-sdk/error-handlers": "^1.3.1",

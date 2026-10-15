@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+﻿import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import "./ServicesOverview.css";
+import "./BackendOverview.css";
 import { Flex } from "@dynatrace/strato-components/layouts";
 import { Heading, Strong, Text } from "@dynatrace/strato-components/typography";
 import {
@@ -48,6 +48,7 @@ import type { PersonaDef } from "../components/PersonaPickerModal";
 import { CorrelationsContext, CorrelationsPanel } from "../components/CorrelationsPanel";
 import type { MetricEntry } from "../components/CorrelationsPanel";
 import { AnnotationProvider, AnnotationStrip } from "../components/AnnotationLayer";
+import { DTIntelligenceContext, DTIntelligenceButton, useDTIntelligence } from "../components/DynatraceIntelligence";
 import {
   serviceListQuery,
   servicesHealthQuery,
@@ -1086,6 +1087,11 @@ function AIInsightsButton({ active, onClick }: { active: boolean; onClick: () =>
   );
 }
 
+function DTIWrapper({ buildPrompt }: { buildPrompt: () => { text: string; contextData: string } }) {
+  const { panel } = useDTIntelligence(buildPrompt);
+  return <>{panel}</>;
+}
+
 function StreamText({ text, baseDelay, style }: { text: string; baseDelay: number; style?: React.CSSProperties }) {
   const words = text.split(/(\s+)/);
   let wordIndex = 0;
@@ -1704,7 +1710,7 @@ function HotnessAssistPanel({
 
     return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Hotness Assist Report — Services Overview</title>
+<title>Hotness Assist Report — Backend Overview</title>
 <style>
   @media print { body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } @page { margin: 0.6in; size: A4; } .no-print { display: none !important; } }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #e0e0e0; background: #0f1428; margin: 0 auto; padding: 32px; max-width: 900px; line-height: 1.5; }
@@ -1738,7 +1744,7 @@ function HotnessAssistPanel({
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C12 2 7 8 7 13a5 5 0 0010 0c0-2.5-1.5-4.5-3-6 0 2-1 3.5-2 4.5C11 10 12 7.5 12 2z" fill="#FF832B"/></svg>
   <div>
     <div style="font-size:20px;font-weight:700">Hotness Assist Report</div>
-    <div style="font-size:12px;opacity:0.5">Services Overview · Generated ${generatedAt}</div>
+    <div style="font-size:12px;opacity:0.5">Backend Overview · Generated ${generatedAt}</div>
   </div>
 </div>
 
@@ -1857,7 +1863,7 @@ ${reportComparisonCards(
 <h2>Active Problems at Peak</h2>
 <div style="margin-bottom:20px">${problemsHtml}</div>
 
-<div class="footer">Hotness Assist · Services Overview · Rule-based analysis from span-derived error rate, P90 latency, request volume, and Davis problem signals. Generated ${generatedAt}.</div>
+<div class="footer">Hotness Assist · Backend Overview · Rule-based analysis from span-derived error rate, P90 latency, request volume, and Davis problem signals. Generated ${generatedAt}.</div>
 </body></html>`;
   };
 
@@ -1893,7 +1899,7 @@ ${reportComparisonCards(
           onMouseDown={e => e.stopPropagation()}
           onClick={() => {
             const rec0 = data.recommendations[0]?.text ?? "Investigate root cause.";
-            const text = `Services Overview detected a ${data.alertPattern}-pattern spike — ${data.episodeCount} episode${data.episodeCount !== 1 ? "s" : ""} (longest ${data.longestEpisodeBuckets} bucket${data.longestEpisodeBuckets !== 1 ? "s" : ""}, peak Z=${data.worstZ?.toFixed(1) ?? "?"}). Drift: ${data.driftLabel}. Avg recovery: ${data.avgRecoveryBuckets === 0 ? "n/a" : `${data.avgRecoveryBuckets} bucket${data.avgRecoveryBuckets !== 1 ? "s" : ""}`}. Recommendation: ${rec0}`;
+            const text = `Backend Overview detected a ${data.alertPattern}-pattern spike — ${data.episodeCount} episode${data.episodeCount !== 1 ? "s" : ""} (longest ${data.longestEpisodeBuckets} bucket${data.longestEpisodeBuckets !== 1 ? "s" : ""}, peak Z=${data.worstZ?.toFixed(1) ?? "?"}). Drift: ${data.driftLabel}. Avg recovery: ${data.avgRecoveryBuckets === 0 ? "n/a" : `${data.avgRecoveryBuckets} bucket${data.avgRecoveryBuckets !== 1 ? "s" : ""}`}. Recommendation: ${rec0}`;
             navigator.clipboard.writeText(text).catch(() => {});
           }}
           title="Copy executive summary to clipboard"
@@ -4315,7 +4321,7 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
     return m;
   }, [dependenciesData]);
 
-  const { nodePositions, maxDepth } = useMemo(() => {
+  const { nodePositions, maxDepth, impactSummary, topImpacted, pathSummary } = useMemo(() => {
     const visited = new Map<string, number>();
     visited.set(svc.Service, 0);
     const queue: { name: string; depth: number }[] = [{ name: svc.Service, depth: 0 }];
@@ -4330,21 +4336,49 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
         queue.push({ name: caller, depth: depth + 1 });
       });
     }
+
+    const impactNodes = [...visited.entries()]
+      .filter(([name]) => name !== svc.Service)
+      .map(([name, depth]) => {
+        const s = svcDetailsData.find((d: any) => d.Service === name);
+        const failureRate = s?.FailureRate ?? 0;
+        const status = s?.Status ?? "HEALTHY";
+        return {
+          name,
+          depth,
+          failureRate,
+          status,
+          risky: failureRate >= 2 || status === "PROBLEM",
+        };
+      })
+      .sort((a, b) => a.depth - b.depth || b.failureRate - a.failureRate);
+
     const byDepth = new Map<number, string[]>();
     visited.forEach((d, name) => { if (d === 0) return; if (!byDepth.has(d)) byDepth.set(d, []); byDepth.get(d)!.push(name); });
     const CX = 280, CY = 280, maxR = 220;
     const positions: { name: string; depth: number; x: number; y: number; angleDeg: number }[] = [];
-    byDepth.forEach((names, depth) => {
-      const ringR = (depth / Math.max(md, 1)) * maxR;
+    const ringDepths = [...byDepth.keys()].sort((a, b) => a - b);
+    ringDepths.forEach(depth => {
+      const names = [...(byDepth.get(depth) ?? [])].sort((a, b) => ((svcDetailsData.find((d: any) => d.Service === b)?.FailureRate ?? 0) - (svcDetailsData.find((d: any) => d.Service === a)?.FailureRate ?? 0)) || a.localeCompare(b));
+      const ringR = (depth / Math.max(md || 1, 1)) * maxR;
       const count = Math.min(names.length, 14);
       for (let i = 0; i < count; i++) {
-        const angleDeg = (i / count) * 360 - 90;
+        const angleDeg = (i / Math.max(1, count)) * 360 - 90 + (depth * 12);
         const angleRad = (angleDeg * Math.PI) / 180;
         positions.push({ name: names[i], depth, x: CX + ringR * Math.cos(angleRad), y: CY + ringR * Math.sin(angleRad), angleDeg: ((angleDeg + 360) % 360) });
       }
     });
-    return { nodePositions: positions, maxDepth: md };
-  }, [svc.Service, callerMap]);
+
+    const riskCount = impactNodes.filter(n => n.risky).length;
+    const directCount = impactNodes.filter(n => n.depth === 1).length;
+    const topImpacted = impactNodes.slice(0, 4);
+    const pathSummary = topImpacted.length ? topImpacted.map(n => n.name).join(", ") : "No downstream callers detected";
+    const impactSummary = directCount > 0
+      ? `${directCount} direct consumer${directCount === 1 ? "" : "s"} in the blast radius${riskCount > 0 ? `, ${riskCount} already elevated` : ""}`
+      : "No direct consumers detected in current dependency graph";
+
+    return { nodePositions: positions, maxDepth: md, impactSummary, topImpacted, pathSummary };
+  }, [svc.Service, callerMap, svcDetailsData]);
 
   useEffect(() => {
     let last = performance.now();
@@ -4374,11 +4408,11 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
       <div style={{ background: "rgba(2,8,2,0.99)", border: `1px solid ${RADAR_GREEN}44`, borderRadius: 16, padding: "20px 24px", width: 640, maxWidth: "95vw", boxShadow: `0 0 60px ${RADAR_GREEN}18, 0 0 120px rgba(0,0,0,0.8)` }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, color: RADAR_GREEN, letterSpacing: 4, textTransform: "uppercase", marginBottom: 3, fontFamily: "monospace" }}>◉ INCIDENT RADAR — BLAST ANALYSIS</div>
             <div style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>{svc.Service}</div>
-            <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
+            <div style={{ display: "flex", gap: 16, marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontFamily: "monospace" }}>SCORE <strong style={{ color: (svc.score ?? 0) > 20 ? RED : ORANGE }}>{(svc.score ?? 0).toFixed(1)}</strong></span>
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontFamily: "monospace" }}>FAILURE <strong style={{ color: RED }}>{(svc.FailureRate ?? 0).toFixed(2)}%</strong></span>
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", fontFamily: "monospace" }}>DOWNSTREAM <strong style={{ color: ORANGE }}>{svc.totalImpact ?? 0}</strong></span>
@@ -4386,6 +4420,25 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
             </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: `1px solid ${RADAR_GREEN}44`, color: RADAR_GREEN, cursor: "pointer", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontFamily: "monospace" }}>✕ CLOSE</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
+          <div style={{ background: "rgba(0,255,65,0.06)", border: "1px solid rgba(0,255,65,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: 1.2, fontFamily: "monospace" }}>Impact Radius</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: RADAR_GREEN, marginTop: 2 }}>{Math.max(0, (svc.totalImpact ?? 0))}</div>
+          </div>
+          <div style={{ background: "rgba(255,140,0,0.06)", border: "1px solid rgba(255,140,0,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: 1.2, fontFamily: "monospace" }}>Risk View</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: ORANGE, marginTop: 2 }}>{impactSummary}</div>
+          </div>
+          <div style={{ background: "rgba(69,137,255,0.06)", border: "1px solid rgba(69,137,255,0.18)", borderRadius: 8, padding: "8px 10px" }}>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: 1.2, fontFamily: "monospace" }}>Critical Path</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#B8D1FF", marginTop: 2 }}>{pathSummary}</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", fontFamily: "monospace", letterSpacing: 1, marginBottom: 10 }}>
+          USE CASE: if this service is noisy or unhealthy, this radar shows who will break next, how far the fallout spreads, and which downstream consumers are already elevated.
         </div>
 
         {/* Radar SVG */}
@@ -4461,9 +4514,19 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
           <text x={548} y={549} textAnchor="end" fontSize={7.5} fill={RADAR_GREEN} fillOpacity={0.42} fontFamily="monospace">MAX DEPTH: {maxDepth}</text>
         </svg>
 
+        {topImpacted.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 8 }}>
+            {topImpacted.map(node => (
+              <span key={node.name} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 999, padding: "4px 9px", fontSize: 10, color: node.risky ? ORANGE : RADAR_GREEN, fontFamily: "monospace" }}>
+                {node.name}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Legend */}
         <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 10 }}>
-          {([["#fff", "Origin (blast source"], [RADAR_GREEN, "Healthy downstream"], [ORANGE, "Also elevated"]] as [string, string][]).map(([clr, label]) => (
+          {([["#fff", "Origin (blast source)"], [RADAR_GREEN, "Healthy downstream"], [ORANGE, "Also elevated"]] as [string, string][]).map(([clr, label]) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: clr }} />
               <span style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", fontFamily: "monospace" }}>{label}</span>
@@ -4476,7 +4539,7 @@ function IncidentRadarModal({ svc, dependenciesData, svcDetailsData, onClose }: 
   );
 }
 
-export const ServicesOverview = () => {
+export const BackendOverview = () => {
   const envUrl = getEnvironmentUrl().replace(/\/$/, "");
 
   // --- State ---
@@ -4498,6 +4561,8 @@ export const ServicesOverview = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [dtOpen, setDtOpen] = useState(false);
+  const [dtIntelligenceEnabledState, setDtIntelligenceEnabledState] = useState(false);
   const [metricsSubTab, setMetricsSubTab] = useState(0);
   const [summarySubTab, setSummarySubTab] = useState(0);
   const [reliabilitySubTab, setReliabilitySubTab] = useState(0);
@@ -4744,6 +4809,7 @@ export const ServicesOverview = () => {
   const savedSubSubTabVisibility = useUserAppState({ key: SUB_SUB_TAB_STATE_KEY });
   const savedSubSubTabOrder = useUserAppState({ key: SUB_SUB_TAB_ORDER_STATE_KEY });
   const savedSvcSankeyStyle = useUserAppState({ key: SVC_SANKEY_STYLE_STATE_KEY });
+  const savedDtIntelligenceEnabled = useUserAppState({ key: "svc-dt-intelligence-enabled" });
   const { execute: saveAppState } = useSetUserAppState();
 
   React.useEffect(() => {
@@ -4753,6 +4819,18 @@ export const ServicesOverview = () => {
       if (valid.includes(v as SvcSankeyStyle)) setSvcSankeyStyle(v as SvcSankeyStyle);
     }
   }, [savedSvcSankeyStyle.data]);
+
+  React.useEffect(() => {
+    if (savedDtIntelligenceEnabled.data?.value) {
+      setDtIntelligenceEnabledState(savedDtIntelligenceEnabled.data.value === "true");
+    }
+  }, [savedDtIntelligenceEnabled.data]);
+
+  const dtIntelligenceEnabled = dtIntelligenceEnabledState;
+  const setDtIntelligenceEnabled = useCallback((v: boolean) => {
+    setDtIntelligenceEnabledState(v);
+    saveAppState({ key: "svc-dt-intelligence-enabled", body: { value: String(v) } });
+  }, [saveAppState]);
 
   React.useEffect(() => {
     if (savedTabVisibility.data?.value) {
@@ -4974,6 +5052,21 @@ export const ServicesOverview = () => {
   const [incidentCommandMode, setIncidentCommandMode] = useState<"stabilize" | "mitigate" | "recovery">("stabilize");
   const [activeTabIndex, setActiveTabIndex] = useState(0);
   const activeTabKey = visibleTabs[activeTabIndex] as TabKey | undefined;
+
+  const compositeTabKey = React.useMemo(() => {
+    switch (activeTabKey) {
+      case "Summary Details": return `Summary Details:${summarySubTab === 0 ? "Service Details" : "Request Details"}`;
+      case "Metrics": return `Metrics:${["Service Metrics", "Process Metrics", "K8s Workloads"][metricsSubTab] ?? ""}`;
+      case "Reliability": return `Reliability:${["SLO & Error Budget", "MTTR / MTTA", "Budget Forecast", "Reliability Report"][reliabilitySubTab] ?? ""}`;
+      case "Quality": return `Quality:${["Scorecards", "Service Maturity"][qualitySubTab] ?? ""}`;
+      case "Performance": return `Performance:${["Endpoint Heatmap", "Apdex", "Flame Graph"][performanceSubTab] ?? ""}`;
+      case "Dependencies & Impact": return `Dependencies & Impact:${["Dependencies", "Service Flow", "Blast Radius"][depsImpactSubTab] ?? ""}`;
+      case "Incidents & Changes": return `Incidents & Changes:${["Incident Timeline", "Change Impact", "Deploy Readiness", "On-Call Health"][incidentsSubTab] ?? ""}`;
+      case "Detection & Analysis": return `Detection & Analysis:${["Anomaly Detection", "Correlation Engine", "Anti-Patterns", "Baselines", "Alert Rules"][detectionSubTab] ?? ""}`;
+      case "Capacity & Sizing": return `Capacity & Sizing:${["Right-Sizing", "Traffic Patterns", "What-If"][capacitySubTab] ?? ""}`;
+      default: return activeTabKey ?? "";
+    }
+  }, [activeTabKey, summarySubTab, metricsSubTab, reliabilitySubTab, qualitySubTab, performanceSubTab, depsImpactSubTab, incidentsSubTab, detectionSubTab, capacitySubTab]);
 
   // Track which tabs/sub-tabs have ever been activated so queries can lazy-load.
   React.useEffect(() => {
@@ -7615,7 +7708,7 @@ export const ServicesOverview = () => {
       const uid = () => crypto.randomUUID();
 
       const sections: any[] = [
-        { id: uid(), type: "markdown", markdown: `# Services Overview — Reliability Report ${ts}\n\nAuto-generated notebook from the **Services Overview** app.\n\n**Settings:** Top N = ${topN}, Chart Top N = ${chartTopN}, Timeframe = ${tfLabel}` },
+        { id: uid(), type: "markdown", markdown: `# Backend Overview — Reliability Report ${ts}\n\nAuto-generated notebook from the **Backend Overview** app.\n\n**Settings:** Top N = ${topN}, Chart Top N = ${chartTopN}, Timeframe = ${tfLabel}` },
 
         // Service Health
         { id: uid(), type: "markdown", markdown: "## Service Health" },
@@ -9523,6 +9616,211 @@ export const ServicesOverview = () => {
     });
   }, [hostCpuResult.data, hostMemResult.data]);
 
+  // ─── Dynatrace Intelligence prompt builder ───
+  const buildDTPrompt = useCallback((): { text: string; contextData: string } => {
+    const pct = (v: number | null | undefined) => v != null ? v.toFixed(2) + "%" : "N/A";
+    const ms = (v: number | null | undefined) => v != null ? v.toFixed(0) + "ms" : "N/A";
+    const num = (v: number | null | undefined) => v != null ? v.toLocaleString() : "N/A";
+    const sloStatus = sloData.length > 0 ? ((sloData as any[]).every((s: any) => s.Status !== "EXHAUSTED") ? "PASSING" : "BREACHED") : "N/A";
+    const errorRate = overviewKpis.errorRate ?? null;
+    const avgCpu = hostRightSizingData.length > 0
+      ? (hostRightSizingData as any[]).reduce((s: number, d: any) => s + (d["Avg CPU %"] ?? 0), 0) / hostRightSizingData.length
+      : null;
+    const avgMem = hostRightSizingData.length > 0
+      ? (hostRightSizingData as any[]).reduce((s: number, d: any) => s + (d["Avg Mem %"] ?? 0), 0) / hostRightSizingData.length
+      : null;
+    const topFailureSvcs = (svcDetailsData ?? [])
+      .filter(r => (r.FailureRate ?? 0) > 0)
+      .sort((a, b) => (b.FailureRate ?? 0) - (a.FailureRate ?? 0))
+      .slice(0, 5)
+      .map(r => `${r.Service ?? "Unknown"}: ${(r.FailureRate ?? 0).toFixed(2)}%`)
+      .join(", ");
+    const baseCtx = `App: Dynatrace Backend Overview\nServices: ${num(svcDetailsData.length)}\nActive Davis problems: ${overviewKpis.activeProblems ?? "N/A"}\nTotal requests: ${num(overviewKpis.totalRequests)}\nError rate: ${pct(errorRate)}\nP90 latency: ${ms(overviewKpis.avgP90 != null ? overviewKpis.avgP90 / 1000 : null)}\nSLO: ${sloStatus} (target: ${sloTarget ?? "N/A"}%)\nMTTR: ${mttrData.count > 0 ? (mttrData.mttr < 60 ? Math.round(mttrData.mttr) + " min" : (mttrData.mttr / 60).toFixed(1) + "h") : "N/A"}\nAvg CPU: ${pct(avgCpu)}\nAvg Memory: ${pct(avgMem)}\nDeployments (30d): ${num(deploymentsData.length)}\nTop failure services: ${topFailureSvcs || "none"}`;
+
+    switch (compositeTabKey) {
+      case "Overview":
+        return {
+          text: `Analyze the backend service overview. Assess service reliability, error rates, P90 latency, and Davis AI problems. Identify the highest-priority service reliability issue and the top 3 actions to improve backend health. Respond in JSON with summary, insights (array of {severity, icon, text}), recommendations (array of {impact, text}).`,
+          contextData: baseCtx,
+        };
+      case "Summary Details:Service Details":
+        return {
+          text: `Analyze the backend service details view. Evaluate per-service failure rates, request volumes, and latency. Identify services at highest risk and recommend immediate actions. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nService count: ${num(svcDetailsData.length)}`,
+        };
+      case "Summary Details:Request Details":
+        return {
+          text: `Analyze the backend request details view. Identify high-latency or high-failure-rate endpoints and recommend optimizations. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Metrics:Service Metrics":
+        return {
+          text: `Analyze backend service metrics trends. Evaluate request volume trends and any correlation with deployments. Identify anomalies and recommend actions. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nDeployments in period: ${num(deploymentsData.length)}`,
+        };
+      case "Metrics:Process Metrics":
+        return {
+          text: `Analyze backend process-level metrics (CPU, memory, GC). Identify processes with resource pressure and recommend optimizations. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nAvg host CPU: ${pct(avgCpu)}\nAvg host memory: ${pct(avgMem)}`,
+        };
+      case "Metrics:K8s Workloads":
+        return {
+          text: `Analyze Kubernetes workload metrics. Identify workloads with CPU or memory pressure and recommend scaling or resource limit adjustments. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Reliability:SLO & Error Budget":
+        return {
+          text: `Analyze the SLO and error budget status. Assess burn rate, remaining budget, and risk of SLO breach. Provide prioritized remediation steps. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nSLO status: ${sloStatus}\nSLO target: ${sloTarget ?? "N/A"}%`,
+        };
+      case "Reliability:MTTR / MTTA":
+        return {
+          text: `Analyze MTTR and MTTA metrics. Identify whether incident response times meet benchmarks and recommend improvements to detection, escalation, and resolution workflows. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nMTTR: ${mttrData.count > 0 ? (mttrData.mttr < 60 ? Math.round(mttrData.mttr) + " min" : (mttrData.mttr / 60).toFixed(1) + "h") : "N/A"}\nIncident count: ${num(mttrData.count)}`,
+        };
+      case "Reliability:Budget Forecast":
+        return {
+          text: `Analyze the error budget forecast. Assess the projected budget trajectory and identify actions needed to prevent SLO exhaustion before the end of the window. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nSLO status: ${sloStatus}\nSLO target: ${sloTarget ?? "N/A"}%`,
+        };
+      case "Reliability:Reliability Report":
+        return {
+          text: `Generate a comprehensive reliability report. Summarize SLO health, incident response effectiveness, change risk, and service quality scores. Provide the top strategic recommendations. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Quality:Scorecards":
+        return {
+          text: `Analyze service quality scorecards. Identify services with the lowest scores, highlight the key quality dimensions failing, and recommend remediation. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Quality:Service Maturity":
+        return {
+          text: `Analyze service maturity levels. Identify services at low maturity stages and recommend the highest-impact steps to accelerate maturity progression. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Performance:Endpoint Heatmap":
+        return {
+          text: `Analyze the endpoint performance heatmap. Identify hotspot endpoints with elevated latency or failure rates and recommend targeted optimizations. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Performance:Apdex":
+        return {
+          text: `Analyze Apdex scores across services. Identify services with frustrated or tolerating scores and recommend performance improvements. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Performance:Flame Graph":
+        return {
+          text: `Analyze the performance flame graph data. Identify the hottest code paths consuming the most CPU or execution time and recommend optimization targets. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Dependencies & Impact:Dependencies":
+        return {
+          text: `Analyze service dependency topology. Identify critical dependencies that represent single points of failure or high blast radius risk. Recommend resilience improvements. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Dependencies & Impact:Service Flow":
+        return {
+          text: `Analyze the service flow view. Identify bottlenecks and latency hotspots in the request flow and recommend flow optimizations. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Dependencies & Impact:Blast Radius":
+        return {
+          text: `Analyze the blast radius assessment. Identify which services or infrastructure components have the largest potential failure impact and recommend isolation or redundancy strategies. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Incidents & Changes:Incident Timeline":
+        return {
+          text: `Analyze the incident timeline. Identify recurring incident patterns, peak incident periods, and recommend process improvements to reduce incident frequency and duration. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Incidents & Changes:Change Impact":
+        return {
+          text: `Analyze change impact data. Identify deployments or changes correlated with performance degradation or incidents and recommend change risk mitigation strategies. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nDeployments (30d): ${num(deploymentsData.length)}`,
+        };
+      case "Incidents & Changes:Deploy Readiness":
+        return {
+          text: `Analyze deploy readiness signals. Identify services that are not ready for safe deployment and recommend gates or checks to improve deploy confidence. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Incidents & Changes:On-Call Health":
+        return {
+          text: `Analyze on-call health metrics. Identify alert fatigue, off-hours pages, and team burnout signals. Recommend alert tuning and on-call process improvements. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Detection & Analysis:Anomaly Detection":
+        return {
+          text: `Analyze detected anomalies and their correlations. Identify the most impactful active anomalies and recommend immediate investigation steps. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Detection & Analysis:Correlation Engine":
+        return {
+          text: `Analyze the correlation engine findings. Identify the strongest signal correlations between metrics and incidents and recommend monitoring improvements based on these patterns. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Detection & Analysis:Anti-Patterns":
+        return {
+          text: `Analyze detected anti-patterns in the services. Identify the most common and impactful anti-patterns and recommend remediation or architectural improvements. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Detection & Analysis:Baselines":
+        return {
+          text: `Analyze metric baselines and violations. Identify services with the most baseline violations and recommend threshold tuning or capacity adjustments. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Detection & Analysis:Alert Rules":
+        return {
+          text: `Analyze alert rules and their effectiveness. Identify noisy, misconfigured, or missing alert rules and recommend a tuned alerting strategy to improve signal-to-noise ratio. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Capacity & Sizing:Right-Sizing":
+        return {
+          text: `Analyze infrastructure right-sizing opportunities. Identify over-provisioned and under-provisioned hosts or workloads and recommend sizing adjustments for cost and performance optimization. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nAvg host CPU: ${pct(avgCpu)}\nAvg host memory: ${pct(avgMem)}\nHost count: ${num(hostRightSizingData.length)}`,
+        };
+      case "Capacity & Sizing:Traffic Patterns":
+        return {
+          text: `Analyze traffic pattern trends. Identify peak periods, growth trajectories, and seasonal patterns. Recommend capacity planning actions to handle projected load. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Capacity & Sizing:What-If":
+        return {
+          text: `Analyze what-if capacity scenarios. Based on current service load and latency, assess risk thresholds and recommend proactive capacity actions before performance degrades. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Cloud Waste":
+        return {
+          text: `Analyze cloud waste and cost optimization opportunities. Identify dangling resources, over-provisioned workloads, and recommend the highest-ROI cost reduction actions. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx + `\nAvg host CPU: ${pct(avgCpu)}\nAvg host memory: ${pct(avgMem)}`,
+        };
+      case "Incident Command":
+        return {
+          text: `Analyze the active incident command situation. Assess the likely root cause, impacted services, and recommended immediate stabilization actions. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Failure Patterns":
+        return {
+          text: `Analyze recurring failure patterns detected in the services. Identify the highest-confidence patterns and recommend playbook actions to prevent recurrence. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Team Reliability":
+        return {
+          text: `Analyze team reliability scores and service ownership health. Identify teams with the lowest reliability scores and at-risk services. Recommend targeted coaching and process improvements. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      case "Incident Radar":
+        return {
+          text: `Analyze the incident radar signals. Identify early warning indicators and services showing pre-incident patterns. Recommend proactive actions to prevent escalation. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+      default:
+        return {
+          text: `Analyze backend service health for the "${compositeTabKey}" view. Provide insights and recommendations based on available data. Respond in JSON with summary, insights, recommendations.`,
+          contextData: baseCtx,
+        };
+    }
+  }, [compositeTabKey, overviewKpis, svcDetailsData, hostRightSizingData, mttrData, sloTarget, sloData, deploymentsData]);
+
   // ─── Database Right-Sizing ───
   const dbRightSizingData = useMemo(() => {
     const records = databaseResult.data?.records ?? [];
@@ -10169,7 +10467,7 @@ export const ServicesOverview = () => {
       <div className="svc-filter-bar">
         <Flex alignItems="center" justifyContent="space-between" gap={16}>
           {/* Left: App name */}
-          <Heading level={4} style={{ margin: 0, whiteSpace: "nowrap" }}>Services Overview</Heading>
+          <Heading level={4} style={{ margin: 0, whiteSpace: "nowrap" }}>Backend Overview</Heading>
 
           {/* Right: Timeframe + controls */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -10326,6 +10624,9 @@ export const ServicesOverview = () => {
               </svg>
               <Strong style={{ fontSize: 12 }}>Time-Lapse</Strong>
             </label>
+            {dtIntelligenceEnabled && (
+              <DTIntelligenceButton open={dtOpen} onToggle={() => setDtOpen(v => !v)} />
+            )}
             <AIInsightsButton active={aiOpen} onClick={() => setAiOpen(v => !v)} />
             <Button variant={explainMode ? "emphasized" : "default"} onClick={() => setExplainMode(v => !v)}>
               {explainMode ? "Explain: ON" : "Explain"}
@@ -10669,10 +10970,10 @@ export const ServicesOverview = () => {
       )}
 
       <PersonaPickerModal
-        appName="Services Overview"
+        appName="Backend Overview"
         appVersion={APP_VERSION}
         appDesc="Unified view of service health, infrastructure reliability, and performance across your entire service topology."
-        repoUrl="https://github.com/TechShady/services-overview-app"
+        repoUrl="https://github.com/TechShady/backend-overview-app"
         whatsNew={SO_WHATS_NEW}
         statePrefix="svc"
         personas={SO_PERSONAS}
@@ -10699,6 +11000,19 @@ export const ServicesOverview = () => {
         }
       >
         <Flex flexDirection="column" gap={16} padding={16}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
+            <span style={{ flex: 1, fontSize: 13 }}>Dynatrace Intelligence (AI analysis)</span>
+            <label style={{ position: "relative", display: "inline-block", width: 44, height: 24 }}>
+              <input type="checkbox" checked={dtIntelligenceEnabled}
+                onChange={(e) => setDtIntelligenceEnabled(e.target.checked)}
+                style={{ opacity: 0, width: 0, height: 0 }} />
+              <span style={{ position: "absolute", cursor: "pointer", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 24,
+                background: dtIntelligenceEnabled ? "#7c3aed" : "rgba(255,255,255,0.15)", transition: "0.3s" }}>
+                <span style={{ position: "absolute", height: 18, width: 18, left: dtIntelligenceEnabled ? 22 : 3, bottom: 3,
+                  borderRadius: "50%", background: "white", transition: "0.3s" }} />
+              </span>
+            </label>
+          </div>
           <Flex flexDirection="column" gap={4}>
             <Strong>Table Top N (max rows)</Strong>
             <NumberInput value={tempTopN} onChange={(val) => setTempTopN(val ?? DEFAULT_TOP_N)} min={1} max={10000} />
@@ -10882,9 +11196,38 @@ export const ServicesOverview = () => {
       </Modal>
 
       {/* ---- Help Modal ---- */}
-      <Modal title="Services Overview — Help Guide" show={helpOpen} onDismiss={() => setHelpOpen(false)} size="large">
+      <Modal
+        title={
+          <>
+            Backend Overview — Help Guide
+            <a
+              href="https://github.com/TechShady/backend-overview-app/raw/main/USER_GUIDE.docx"
+              target="_blank"
+              rel="noreferrer"
+              title="Download User Guide as Word document"
+              style={{ marginLeft: 14, display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", border: "1px solid rgba(128,128,128,0.35)", borderRadius: 4, fontSize: 12, fontWeight: "normal", color: "inherit", textDecoration: "none", verticalAlign: "middle" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <DocumentIcon /> User Guide
+            </a>
+          </>
+        }
+        show={helpOpen}
+        onDismiss={() => setHelpOpen(false)}
+        size="large"
+      >
         <div className="svc-help-content">
           <h3>What's New</h3>
+          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
+            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>October 10, 2026 — v{APP_VERSION}</p>
+            <p><strong>AI Features — AI Assist &amp; Dynatrace Intelligence</strong></p>
+            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
+              <li><strong>AI FEATURES Settings Section</strong>: New section in Settings with two independent toggle cards — <strong>AI Assist</strong> and <strong>Dynatrace Intelligence</strong>. Both default to OFF. Enable each independently to control which AI surface appears in the header.</li>
+              <li><strong>AI Assist</strong>: Rule-based, deterministic analysis derived entirely from live Dynatrace data already loaded in the view. Zero external calls, zero added latency, works offline. Replaces the previous always-visible "AI Insights" button — now conditionally shown based on the toggle.</li>
+              <li><strong>Dynatrace Intelligence</strong>: Generative analysis powered by Davis CoPilot. Requires the <code>davis-copilot:conversations:execute</code> scope. Adds 2–5 s of latency per invocation. Enable only when generative context is needed.</li>
+              <li><strong>Tab &amp; Sub-Tab Aware DTI</strong>: Dynatrace Intelligence now re-fires automatically on every tab and sub-tab switch, sending a view-specific prompt tailored to what that view actually shows. A composite key (e.g., <code>"Reliability:MTTR / MTTA"</code>, <code>"Detection &amp; Analysis:Baselines"</code>) identifies each of the ~30 unique views and selects the matching Davis CoPilot prompt, replacing the single generic prompt used previously.</li>
+            </ul>
+          </div>
           <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
             <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>July 14, 2026 — v{APP_VERSION}</p>
             <p><strong>Decision Intelligence Expansion</strong></p>
@@ -10930,69 +11273,10 @@ export const ServicesOverview = () => {
               <li><strong>Business Narratives</strong>: Each correlation includes an auto-generated plain-language explanation accounting for metric polarity (e.g. "Error Rate is inverted — a strong positive correlation with Deployments means deployments tend to worsen error rate").</li>
             </ul>
           </div>
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 29, 2026 — v0.38.39</p>
-            <p><strong>Advanced Forecasting Models</strong></p>
-            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
-              <li><strong>6 Forecast Methods</strong>: Choose from Holt-Winters (double exp.), Triple Exponential Smoothing (seasonal), Prophet (piecewise trend + Fourier seasonality), ARIMA (auto-regressive integrated moving average), SARIMA (seasonal ARIMA), and Linear Regression.</li>
-              <li><strong>Auto Season Detection</strong>: Triple Exp. Smoothing, Prophet, and SARIMA automatically detect dominant periodicity via autocorrelation — no manual tuning needed.</li>
-              <li><strong>Intelligent Fallback</strong>: Models gracefully degrade when data is insufficient (e.g. SARIMA falls back to ARIMA if fewer than 2 seasonal cycles).</li>
-            </ul>
-          </div>
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 28, 2026 — v0.38.37</p>
-            <p><strong>Click-to-Forecast on All KPI Cards</strong></p>
-            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
-              <li><strong>7-Day Forecast Modal</strong>: Click any KPI card with a sparkline to open a full-screen timeseries chart that forecasts the metric 7 days into the future.</li>
-              <li><strong>6 Forecast Methods</strong>: Toggle between Holt-Winters, Triple Exp. Smoothing, Prophet, ARIMA, SARIMA, and Linear Regression via a dropdown selector.</li>
-              <li><strong>Interactive Chart</strong>: Full axes with data point labels, crosshair hover with value tooltips, confidence band shading, and clear historical/forecast legend.</li>
-              <li><strong>Doubled Sparkline Resolution</strong>: All sparklines now render at 2x resolution (48 max buckets, 30-min divisor) with the incomplete current bucket trimmed off.</li>
-            </ul>
-          </div>
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 27, 2026 — v0.38.20</p>
-            <p><strong>Unified Header Bar</strong></p>
-            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
-              <li><strong>Header Redesign</strong>: Merged the app name, Timeframe selector, Metric-Stream, AI Insights, help, settings, and version into a single unified header bar (matches User Journey & Experience app layout).</li>
-              <li><strong>Export to Notebook Removed</strong>: Removed the standalone "Export to Notebook" button from the header. The Reliability Report tab retains its dedicated "Generate Reliability Report" function for exporting notebooks.</li>
-            </ul>
-          </div>
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 27, 2026 — v0.38.19</p>
-            <p><strong>Full KPI Arrow Coverage & Drill-Through Removal</strong></p>
-            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
-              <li><strong>Drill-Through Links Removed</strong>: KPI cards are now clean — no drill-through click targets. Navigate via the chart tiles and table links instead.</li>
-              <li><strong>Complete Trend Arrow Coverage</strong>: Budget Forecast, Reliability Report, On-Call Health, and Service Maturity KPI cards now all have ↑/↓ trend indicators with prior-period deltas.</li>
-              <li><strong>Prev-Period Data</strong>: On-Call Health cards (Off-Hours %, Weekend %, Noise Ratio, Avg MTTR, Total Incidents) compare vs the previous equivalent window. Reliability Report cards (Avg Failure Rate, MTTR, Budget Exhausted) show period-over-period change.</li>
-            </ul>
-          </div>
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 27, 2026 — v0.38.17</p>
-            <p><strong>Trend Arrows, Sparklines, Drill-Through Links & Chart Annotations — Fleet-wide</strong></p>
-            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
-              <li><strong>Trend Arrows & Delta</strong>: Every KPI card now shows a ↑/↓ indicator with a % delta vs the prior period. Green = improving, Red = degrading (direction is metric-aware: ↑ requests is good, ↑ error rate is bad).</li>
-              <li><strong>Sparklines</strong>: Every KPI card across all tabs displays a mini time-series chart showing the metric's shape over the selected timeframe — not just the current value. Time-bucketed sparklines use actual data (requests, problems, MTTR, deployments, SLO breaches) while structural tabs use correlated fleet metrics.</li>
-              <li><strong>Drill-Through Links</strong>: Click any Overview KPI card to jump directly to the relevant Dynatrace app — Distributed Tracing (with failure filters), Davis Problems, or SLO — pre-scoped to the current timeframe.</li>
-              <li><strong>Chart Annotations</strong>: Every chart and timeseries panel has an annotation strip above it. Click <strong>+</strong> to pin a timestamped note (Incident, Maintenance, Deployment, or Note). Markers appear on the timeline and persist in your Dynatrace app state. Click a marker to remove it. All annotations are listed in Settings → Annotations.</li>
-              <li><strong>App Version Display</strong>: Current app version shown in the header next to the settings gear (monospace, dim).</li>
-            </ul>
-          </div>
-          <div style={{ marginBottom: 16, padding: "10px 14px", background: "rgba(69,137,255,0.08)", borderRadius: 8, borderLeft: "3px solid rgba(69,137,255,0.6)" }}>
-            <p style={{ fontSize: 12, opacity: 0.5, marginBottom: 4 }}>May 26, 2026 — v0.38.11–v0.38.13</p>
-            <p><strong>Drillable Heatmap, Reliability Trend Period Queries, Anti-Pattern AI Report, On-Call Shift Hours</strong></p>
-            <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
-              <li><strong>Endpoint Heatmap — Drillable Cells</strong>: Click any hourly grid cell to open Distributed Tracing filtered to that service/timeframe. Unified GREEN/YELLOW/RED color scheme across grid and honeycomb.</li>
-              <li><strong>Reliability Trend — Live Period Queries</strong>: 7d/14d/30d buttons now fire period-specific DQL queries — Avg Failure Rate, Fleet Health, and Direction all update per period.</li>
-              <li><strong>Anti-Patterns — Generate AI Report</strong>: Verbose per-pattern report with what/why/impact/remediation steps/industry references + AI Insights.</li>
-              <li><strong>On-Call Rotation — Shift Hours &amp; Delete</strong>: Add time pickers + presets (Day/Night/Business/Full Day) for each shift. × button removes entries.</li>
-              <li><strong>Top Noisy Services</strong>: Fixed "Unknown" service names — now reads affected entity names from Davis problems correctly.</li>
-              <li><strong>MTTR Human-Readable Durations</strong>: Problem durations auto-convert to "5m", "2h 30m", "3d 4h" format.</li>
-            </ul>
-          </div>
 
           <h3>Overview</h3>
           <p>
-            The <strong>Services Overview</strong> app provides Observability SREs with a unified view of service health,
+            The <strong>Backend Overview</strong> app provides Observability SREs with a unified view of service health,
             request analytics, latency distributions, error rates, process-level resource usage, and Kubernetes workload
             metrics. It consolidates the key RED metrics (Rate, Errors, Duration) alongside infrastructure telemetry into
             a single pane of glass.
@@ -11743,6 +12027,8 @@ export const ServicesOverview = () => {
           </div>
         ) : (
         <AnnotationProvider>
+        <DTIntelligenceContext.Provider value={{ open: dtOpen, close: () => setDtOpen(false), activeTabKey: compositeTabKey }}>
+        {dtIntelligenceEnabled && <DTIWrapper buildPrompt={buildDTPrompt} />}
         <AIInsightsContext.Provider value={{ open: aiOpen, close: () => setAiOpen(false) }}>
         <Tabs selectedIndex={activeTabIndex} onChange={(idx) => setActiveTabIndex(idx)}>
           {visibleTabs.map((tabId) => {
@@ -13584,7 +13870,7 @@ export const ServicesOverview = () => {
                     <div className="svc-print-report" style={{ marginTop: 8 }}>
                       {/* Report header (print only) */}
                       <div style={{ display: "none" }} className="svc-print-report-header-print">
-                        <h2 style={{ margin: "0 0 4px" }}>Services Overview — Anti-Pattern Analysis Report</h2>
+                        <h2 style={{ margin: "0 0 4px" }}>Backend Overview — Anti-Pattern Analysis Report</h2>
                         <p style={{ margin: "0 0 16px", opacity: 0.6, fontSize: 11 }}>Generated: {new Date().toLocaleString()}</p>
                       </div>
                       {/* Executive Summary */}
@@ -17486,7 +17772,7 @@ export const ServicesOverview = () => {
                 <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 8, display: "block" }}>Expose readiness status to your deployment pipelines. Add this check to GitHub Actions, Jenkins, or any CI/CD tool.</Text>
                 <div style={{ padding: 12, borderRadius: 6, border: "1px solid rgba(99,130,191,0.3)", fontFamily: "monospace", fontSize: 12, marginBottom: 12 }}>
                   <Text style={{ opacity: 0.5, fontSize: 10, display: "block" }}>Webhook Endpoint (conceptual):</Text>
-                  <code>GET {envUrl}/api/v1/apps/my.services.overview.app/readiness-check</code>
+                  <code>GET {envUrl}/api/v1/apps/my.backend.overview.app/readiness-check</code>
                   <Text style={{ opacity: 0.5, fontSize: 10, display: "block", marginTop: 8 }}>Response:</Text>
                   <pre style={{ margin: 0, fontSize: 11 }}>{JSON.stringify({ verdict: deployReadinessData.verdict, score: deployReadinessData.overallScore, checks: deployReadinessData.checks.length, timestamp: new Date().toISOString() }, null, 2)}</pre>
                 </div>
@@ -17501,7 +17787,7 @@ export const ServicesOverview = () => {
                     <Flex gap={12} alignItems="center" flexWrap="wrap">
                       <Strong style={{ color: RED }}>🛑 Deploy readiness is {deployReadinessData.verdict}</Strong>
                       <Button variant="default" onClick={() => {
-                        const msg = `🛑 DEPLOYMENT BLOCKED — Readiness score: ${deployReadinessData.overallScore}/100 (${deployReadinessData.verdict})\n\nFailing checks:\n${deployReadinessData.checks.filter(c => c.status !== "PASS").map(c => `• ${c.name}: ${c.status} — ${c.detail}`).join("\n")}\n\nGenerated by Services Overview App at ${new Date().toLocaleString()}`;
+                        const msg = `🛑 DEPLOYMENT BLOCKED — Readiness score: ${deployReadinessData.overallScore}/100 (${deployReadinessData.verdict})\n\nFailing checks:\n${deployReadinessData.checks.filter(c => c.status !== "PASS").map(c => `• ${c.name}: ${c.status} — ${c.detail}`).join("\n")}\n\nGenerated by Backend Overview App at ${new Date().toLocaleString()}`;
                         navigator.clipboard.writeText(msg);
                       }}>📋 Copy Blocker Message</Button>
                       <Text style={{ fontSize: 11, opacity: 0.6 }}>Paste into Slack channel or GitHub PR comment to block deployment.</Text>
@@ -18885,6 +19171,7 @@ export const ServicesOverview = () => {
           })}
         </Tabs>
         </AIInsightsContext.Provider>
+        </DTIntelligenceContext.Provider>
         </AnnotationProvider>
         )}
       </Flex>
@@ -18941,3 +19228,4 @@ export const ServicesOverview = () => {
     </CorrelationsContext.Provider>
   );
 };
+

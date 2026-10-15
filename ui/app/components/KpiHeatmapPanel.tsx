@@ -161,14 +161,14 @@ function exportKpiHeatmapPdf(grid: (number | null)[][], analysis: HeatAnalysis, 
   const insHtml = analysis.insights.map(s => `<div style="margin-bottom:5px;padding:7px 11px;background:rgba(128,128,128,0.07);border-radius:6px;font-size:12px;line-height:1.5">💡 ${s}</div>`).join("");
   const recHtml = analysis.recommendations.map(s => `<div style="margin-bottom:5px;padding:7px 11px;background:rgba(69,137,255,0.07);border:1px solid rgba(69,137,255,0.15);border-radius:6px;font-size:12px;line-height:1.5">→ ${s}</div>`).join("");
 
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${label} Heatmap — Services Overview</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${label} Heatmap — Backend Overview</title>
 <style>
   @media print{body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}@page{margin:.6in;size:A4}.pb{page-break-before:always}}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1223;color:#e8eaf0;margin:0;padding:24px}
   h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 10px}
   table{border-collapse:separate;border-spacing:2px}
 </style></head><body>
-<h1>📅 ${label} Heatmap — Services Overview</h1>
+<h1>📅 ${label} Heatmap — Backend Overview</h1>
 <div style="font-size:11px;opacity:0.4;margin-bottom:18px">Generated ${ts} · 7-day view (Sun–Sat, 12am–11pm)</div>
 <table>
   <tr><td style="width:34px"></td>${DAYS.map(d => `<td style="text-align:center;font-size:10px;font-weight:700;padding-bottom:4px;opacity:0.55">${d}</td>`).join("")}</tr>
@@ -193,7 +193,7 @@ function exportKpiHeatmapPdf(grid: (number | null)[][], analysis: HeatAnalysis, 
 </div>
 <h2>Insights</h2>${insHtml}
 <h2>Recommendations</h2>${recHtml}
-<div style="margin-top:28px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.07);font-size:10px;opacity:0.3">${label} Heatmap · Services Overview</div>
+<div style="margin-top:28px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.07);font-size:10px;opacity:0.3">${label} Heatmap · Backend Overview</div>
 </body></html>`;
 
   const w = window.open("", "_blank");

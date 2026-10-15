@@ -1,4 +1,4 @@
-/* Services Overview — Premium styling */
+/* Backend Overview — Premium styling */
 
 .svc-overview {
   display: flex;
@@ -81,31 +81,43 @@
   color: rgba(255, 255, 255, 0.85);
 }
 
-/* Related metrics button on KPI cards */
-.kpi-card .kpi-related-btn {
+/* KPI card three-dot menu button */
+.kpi-card .kpi-menu-btn {
   position: absolute;
-  top: 6px;
-  left: 8px;
-  font-size: 11px;
+  top: 5px;
+  right: 7px;
+  font-size: 14px;
+  line-height: 1;
   opacity: 0;
-  background: rgba(128, 128, 128, 0.1);
-  border: 1px solid rgba(128, 128, 128, 0.2);
+  background: rgba(128, 128, 128, 0.08);
+  border: 1px solid rgba(128, 128, 128, 0.15);
   border-radius: 4px;
-  padding: 1px 5px;
-  color: rgba(165, 110, 255, 0.8);
+  padding: 0px 4px 2px;
+  color: rgba(200, 210, 230, 0.75);
   cursor: pointer;
-  transition: opacity 0.2s, background 0.15s;
-  line-height: 1.2;
-  z-index: 2;
+  transition: opacity 0.18s, background 0.12s;
+  z-index: 3;
 }
 
-.kpi-card:hover .kpi-related-btn {
+.kpi-card:hover .kpi-menu-btn {
   opacity: 1;
 }
 
-.kpi-card .kpi-related-btn:hover {
-  background: rgba(165, 110, 255, 0.15);
-  border-color: rgba(165, 110, 255, 0.4);
+.kpi-card .kpi-menu-btn:hover {
+  background: rgba(69, 137, 255, 0.15);
+  border-color: rgba(69, 137, 255, 0.35);
+  color: #4589FF;
+}
+
+/* KPI dropdown menu items */
+.kpi-dropdown-item {
+  color: rgba(220, 228, 245, 0.88);
+  transition: background 0.1s;
+}
+
+.kpi-dropdown-item:hover {
+  background: rgba(69, 137, 255, 0.12);
+  color: #e8eaf0;
 }
 
 /* Maximized chart overlay */
@@ -504,12 +516,21 @@
   padding: 16px;
 }
 .svc-ai-section-title {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  opacity: 0.5;
-  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 800;
+  opacity: 1;
+  color: rgba(255,255,255,0.88);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.svc-section-card {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
 }
 .svc-ai-insight-row {
   display: flex;

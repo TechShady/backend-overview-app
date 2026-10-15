@@ -2,7 +2,7 @@ import { Page } from "@dynatrace/strato-components-preview/layouts";
 import React from "react";
 import { Route, Routes } from "react-router-dom";
 import { DisclaimerModal } from "./components/DisclaimerModal";
-import { ServicesOverview } from "./pages/ServicesOverview";
+import { BackendOverview } from "./pages/BackendOverview";
 import { TimeframeProvider } from "./state/TimeframeContext";
 import { TimelapseProvider } from "./TimelapseContext";
 
@@ -42,7 +42,7 @@ export const App = () => {
           <Page>
             <Page.Main>
               <Routes>
-                <Route path="/" element={<ServicesOverview />} />
+                <Route path="/" element={<BackendOverview />} />
               </Routes>
             </Page.Main>
           </Page>

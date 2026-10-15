@@ -1,5 +1,5 @@
 ﻿/**
- * DQL query builders for the Services Overview app.
+ * DQL query builders for the Backend Overview app.
  *
  * Each timeseries / time-windowed query takes a `TF` (timeframe) argument
  * with `from` / `to` raw values plus their `expression` | `iso8601` types.

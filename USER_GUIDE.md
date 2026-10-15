@@ -1,6 +1,6 @@
-# Services Overview App — User Guide
+﻿# Backend Overview App — User Guide
 
-> **Disclaimer:** This is an unofficial community application built by a Dynatrace SE. It is not a supported Dynatrace product. File issues on [GitHub](https://github.com/TechShady/services-overview-app); there is no support SLA.
+> **Disclaimer:** This is an unofficial community application built by a Dynatrace SE. It is not a supported Dynatrace product. File issues on [GitHub](https://github.com/TechShady/backend-overview-app); there is no support SLA.
 
 ---
 
@@ -27,12 +27,13 @@
 19. [Cross-Cutting Features](#19-cross-cutting-features)
 20. [Common Workflows](#20-common-workflows)
 21. [Settings Reference](#21-settings-reference)
+22. [What's New](#22-whats-new)
 
 ---
 
 ## 1. What Is This App?
 
-The **Services Overview App** is a multi-tab SRE command center built on the Dynatrace Platform. It consolidates signals that would otherwise require navigating across multiple Dynatrace apps into a single unified interface:
+The **Backend Overview App** is a multi-tab SRE command center built on the Dynatrace Platform. It consolidates signals that would otherwise require navigating across multiple Dynatrace apps into a single unified interface:
 
 - **RED metrics** (Rate, Errors, Duration) for every service in your fleet
 - **Kubernetes workload health** — containers, nodes, pods, namespaces, clusters
@@ -69,11 +70,12 @@ Each tab loads its queries **lazily** — data is only fetched after you first v
 |---------|-------------|
 | **Timeframe** | Global time range for all queries (top-right). |
 | **Metric-Stream** | Auto-refresh interval: Off / 30 s / 1 min / 5 min / 10 min. A spinner and "Xs ago" timestamp appear while active. |
-| **AI Insights** | Toggle the AI analysis panel for the active tab. Shows deterministic observations (good / warning / critical / info) and prioritized recommendations. |
+| **AI Assist** | (Conditional — visible when enabled in Settings) Toggle the rule-based analysis panel for the active tab. Deterministic observations (good / warning / critical / info) and prioritized recommendations derived from live tab data. No external calls; zero added latency; works offline. |
+| **Dynatrace Intelligence** | (Conditional — visible when enabled in Settings) Toggle the Davis CoPilot generative analysis panel. Fires a view-specific prompt on every tab or sub-tab switch. Requires the `davis-copilot:conversations:execute` scope; adds 2–5 s latency per invocation. |
 | **Explain** | Toggle Explain Mode. Adds bullet-point reasoning panels to each tab that explain the thresholds and decision logic behind the numbers. |
 | **$ / req** | Dollar value per request. Used across the app to calculate revenue-at-risk estimates in Incident Command, Blast Radius, and the Overview KPI bar. |
 | **Compare** | Appears on the Metrics, Quality, and Performance tabs. Overlays the previous period's data alongside the current period's data on all charts. |
-| **Help (?)** | Opens the in-app help modal. |
+| **Help (?)** | Opens the in-app help modal. The **📄 User Guide** download button appears at the top of the Help modal header. |
 | **Settings (gear)** | Opens the Settings modal (see [Section 21](#21-settings-reference)). |
 
 ---
@@ -672,15 +674,47 @@ Filter by minimum correlation strength: 30% / 50% / 70%. Use this to find which 
 
 Available on the Metrics, Quality, and Performance tabs. Toggles an overlay of the previous period's data (using the same duration as the current timeframe, shifted back by that duration) alongside all current-period charts.
 
-### AI Insights Panel
+### AI Assist (Rule-Based Analysis)
 
-Toggle via the **AI Insights** button in the header. Displays a deterministic analysis panel for the active tab with:
+Toggle via the **AI Assist** button in the header. Only visible when **AI Assist** is enabled in Settings → AI FEATURES. Displays a deterministic analysis panel for the active tab with:
 
 - A summary of current tab state
 - Severity-tagged observations (good / warning / critical / info)
 - Prioritized recommendations
 
-This analysis is computed from the same data shown in the tab, not a generative model — it applies deterministic rules to surface patterns.
+This analysis is computed from the same data shown in the tab — no generative model, no external calls, zero added latency. It applies deterministic rules to surface patterns and works even when offline.
+
+### Dynatrace Intelligence (Generative Analysis)
+
+Toggle via the **Dynatrace Intelligence** button in the header. Only visible when **Dynatrace Intelligence** is enabled in Settings → AI FEATURES.
+
+Powered by **Davis CoPilot**, this panel generates contextual, narrative analysis of the current view. Unlike AI Assist, it makes an external call to the Davis CoPilot API on each invocation and adds 2–5 seconds of latency.
+
+**Tab and Sub-Tab Awareness**
+
+Dynatrace Intelligence is view-aware: it automatically re-fires with a new, view-specific prompt every time you navigate to a different tab or sub-tab. A composite key — combining the main tab label and the active sub-tab label (e.g., `"Reliability:MTTR / MTTA"`, `"Detection & Analysis:Baselines"`, `"Performance:Flame Graph"`) — identifies each unique view. The ~30 unique views covered span all 15 main tabs:
+
+| Main Tab | Sub-Tabs Covered |
+|----------|-----------------|
+| Overview | (single view) |
+| Summary Details | Service Details, Request Details |
+| Metrics | Service Metrics, Process Metrics, K8s Workloads |
+| Reliability | SLO & Error Budget, MTTR / MTTA, Budget Forecast, Reliability Report |
+| Quality | Scorecards, Service Maturity |
+| Performance | Endpoint Heatmap, Apdex, Flame Graph |
+| Dependencies & Impact | Dependencies, Service Flow, Blast Radius |
+| Incidents & Changes | Incident Timeline, Change Impact, Deploy Readiness, On-Call Health |
+| Detection & Analysis | Anomaly Detection, Correlation Engine, Anti-Patterns, Baselines, Alert Rules |
+| Capacity & Sizing | Right-Sizing, Traffic Patterns, What-If |
+| Cloud Waste | (single view) |
+| Incident Command | (single view) |
+| Failure Patterns | (single view) |
+| Team Reliability | (single view) |
+| Incident Radar | (single view) |
+
+Each prompt is tailored to the data and decisions relevant to that specific view. Navigation between sub-tabs that share the same composite key does not re-fire the prompt (deduplication via a ref comparison).
+
+**Requirements:** The `davis-copilot:conversations:execute` scope must be present in `app.config.json`. If the scope is absent, the toggle will appear in Settings but invocations will fail.
 
 ### Explain Mode
 
@@ -784,6 +818,36 @@ Manage user-defined runbook URLs per service. These links appear inline in the S
 
 Define composite SLO groups that aggregate the error budget across multiple services into a single SLO view.
 
+### AI FEATURES
+
+Two independent AI toggles. Both default to **OFF**. Open Settings and scroll to the **AI FEATURES** section to enable either or both.
+
+| Toggle | Type | What It Does | When to Enable |
+|--------|------|-------------|----------------|
+| **AI Assist** | Rule-based, deterministic | Adds the AI Assist button to the header. The panel shows severity-tagged observations and recommendations computed from the current tab's live data. No external calls; no added latency. | Always-on for SRE workflows — low overhead, useful on every tab. |
+| **Dynatrace Intelligence** | Generative (Davis CoPilot) | Adds the Dynatrace Intelligence button to the header. The panel generates narrative analysis via Davis CoPilot API. Re-fires automatically on every tab or sub-tab switch with a view-specific prompt. | When you need generative context or natural-language summaries. Requires network access and `davis-copilot:conversations:execute` scope; adds 2–5 s latency per view. |
+
+Both features can be enabled simultaneously; they appear as separate buttons in the header.
+
 ---
 
-*For bugs and feature requests, open an issue at [https://github.com/TechShady/services-overview-app](https://github.com/TechShady/services-overview-app).*
+## 22. What's New
+
+### October 10, 2026 — AI Assist & Dynatrace Intelligence
+
+**AI FEATURES Settings Section**
+
+A new **AI FEATURES** section in Settings (gear icon → AI FEATURES) provides two independent toggle cards:
+
+- **AI Assist** — Rule-based, deterministic analysis derived from live Dynatrace data loaded in the current view. No external AI calls, no added latency, works offline. When enabled, the **AI Assist** button appears in the header. Default: OFF.
+- **Dynatrace Intelligence** — Generative analysis via Davis CoPilot. Requires the `davis-copilot:conversations:execute` scope. Adds 2–5 seconds of latency per invocation. When enabled, the **Dynatrace Intelligence** button appears in the header. Default: OFF.
+
+Both toggles are independent and can be enabled simultaneously.
+
+**Dynatrace Intelligence — Tab and Sub-Tab Awareness**
+
+Dynatrace Intelligence now automatically re-fires with a view-specific Davis CoPilot prompt on every tab or sub-tab navigation. Previously a single generic prompt fired once on panel open; it now selects from ~30 tailored prompts using a composite key (`"<main tab>:<sub-tab label>"`), so the analysis is always focused on what the current view actually shows. Navigating back to a view already analyzed does not re-fire (deduplication via ref comparison).
+
+---
+
+*For bugs and feature requests, open an issue at [https://github.com/TechShady/backend-overview-app](https://github.com/TechShady/backend-overview-app).*

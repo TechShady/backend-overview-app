@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, { createContext, useContext, useMemo, useRef, useState } from "react";
 import { Text, Heading } from "@dynatrace/strato-components/typography";
 import { ProgressCircle } from "@dynatrace/strato-components/content";
 import { CorrelationsContext } from "./CorrelationsPanel";
+import { useKpiMenu } from "./KpiMenuContext";
 
 // ─── Forecast Context (allows KpiCard to auto-wire click-to-forecast) ───
 type ForecastOpener = (label: string, sparkline: number[], color?: string) => void;
@@ -15,7 +16,6 @@ function Sparkline({ data, color = "#4589FF" }: { data: number[]; color?: string
   const W = 88;
   const H = 28;
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-  // Drop last bucket (incomplete/current period)
   const trimmed = data.length > 2 ? data.slice(0, -1) : data;
   const valid = trimmed.filter((v) => v != null && !isNaN(v) && isFinite(v));
   if (valid.length < 2) return null;
@@ -48,14 +48,7 @@ function Sparkline({ data, color = "#4589FF" }: { data: number[]; color?: string
         onMouseLeave={() => setHoverIdx(null)}
       >
         <polygon points={fillPts} fill={color} fillOpacity={0.1} />
-        <polyline
-          points={pts}
-          fill="none"
-          stroke={color}
-          strokeWidth={1.5}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
+        <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={2.5} fill={color} />
         {hoverIdx !== null && points[hoverIdx] && (
           <>
@@ -81,7 +74,9 @@ function Sparkline({ data, color = "#4589FF" }: { data: number[]; color?: string
             zIndex: 10,
           }}
         >
-          {typeof points[hoverIdx].value === "number" && points[hoverIdx].value >= 1000 ? `${(points[hoverIdx].value / 1000).toFixed(1)}k` : points[hoverIdx].value.toFixed(points[hoverIdx].value % 1 === 0 ? 0 : 1)}
+          {typeof points[hoverIdx].value === "number" && points[hoverIdx].value >= 1000
+            ? `${(points[hoverIdx].value / 1000).toFixed(1)}k`
+            : points[hoverIdx].value.toFixed(points[hoverIdx].value % 1 === 0 ? 0 : 1)}
         </div>
       )}
     </div>
@@ -90,30 +85,84 @@ function Sparkline({ data, color = "#4589FF" }: { data: number[]; color?: string
 
 export interface KpiCardProps {
   label: string;
-  /** Formatted display value (string or ReactNode) */
   value: React.ReactNode;
-  /** Raw numeric for delta calculation */
   rawValue?: number;
-  /** Raw numeric from previous period */
   prevRawValue?: number | null;
-  /** Time-bucketed values for sparkline */
   sparkline?: number[];
-  /** Value colour */
   color?: string;
-  /**
-   * When true: ↑ is green, ↓ is red (e.g. Total Requests).
-   * When false (default): ↑ is red, ↓ is green (e.g. Error Rate, Latency).
-   */
   higherIsBetter?: boolean;
   isLoading?: boolean;
   style?: React.CSSProperties;
-  /** Passed as `key` when rendered inside a list — not used internally */
   kpiKey?: string;
-  /** Called when card is clicked (for forecast modal) */
   onClick?: () => void;
-  /** When true, lower values are "better" (used for correlation narratives) */
   inverted?: boolean;
 }
+
+// ─── Dropdown Menu ────────────────────────────────────────────────────────────
+
+interface MenuItem {
+  icon: string;
+  label: string;
+  action: () => void;
+  disabled?: boolean;
+}
+
+function KpiDropdown({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className="kpi-dropdown"
+      style={{
+        position: "absolute",
+        top: "100%",
+        right: 0,
+        marginTop: 4,
+        background: "#1e2235",
+        border: "1px solid rgba(255,255,255,0.12)",
+        borderRadius: 8,
+        padding: "4px 0",
+        minWidth: 168,
+        zIndex: 800,
+        boxShadow: "0 8px 28px rgba(0,0,0,0.5)",
+        fontFamily: "'Segoe UI',system-ui,sans-serif",
+      }}
+    >
+      {items.map((item, i) =>
+        item.disabled ? (
+          <div
+            key={i}
+            style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 14px", fontSize: 12, opacity: 0.28, cursor: "default" }}
+          >
+            <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{item.icon}</span>
+            {item.label}
+          </div>
+        ) : (
+          <div
+            key={i}
+            className="kpi-dropdown-item"
+            onClick={() => { item.action(); onClose(); }}
+            style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 14px", fontSize: 12, cursor: "pointer" }}
+          >
+            <span style={{ fontSize: 13, width: 18, textAlign: "center" }}>{item.icon}</span>
+            {item.label}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// ─── KpiCard ──────────────────────────────────────────────────────────────────
 
 export function KpiCard({
   label,
@@ -128,30 +177,51 @@ export function KpiCard({
   onClick,
   inverted,
 }: KpiCardProps) {
-  const forecastOpener = useContext(ForecastContext);
+  const forecastOpener  = useContext(ForecastContext);
   const correlationsCtx = useContext(CorrelationsContext);
-  const handleClick = sparkline && sparkline.length > 1
-    ? (onClick ?? (forecastOpener ? () => forecastOpener(label, sparkline, color) : undefined))
-    : undefined;
+  const kpiMenu         = useKpiMenu();
+
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const hasSpark = sparkline && sparkline.length >= 3;
   const effectiveInverted = inverted ?? !higherIsBetter;
-  const handleRelated = hasSpark && correlationsCtx
-    ? (e: React.MouseEvent) => {
-        e.stopPropagation();
-        correlationsCtx.open({ label, sparkline: sparkline!, color, inverted: effectiveInverted });
+
+  const openForecast = hasSpark && (onClick ?? forecastOpener)
+    ? () => {
+        if (onClick) { onClick(); return; }
+        if (forecastOpener) forecastOpener(label, sparkline!, color);
       }
     : undefined;
+
+  const openRelated = hasSpark && correlationsCtx
+    ? () => correlationsCtx.open({ label, sparkline: sparkline!, color, inverted: effectiveInverted })
+    : undefined;
+
+  const openDimension = kpiMenu
+    ? () => kpiMenu.openDimension({ label, sparkline: sparkline ?? [], color })
+    : undefined;
+
+  const openHeatmap = kpiMenu
+    ? () => kpiMenu.openHeatmap({ label, sparkline: sparkline ?? [], color })
+    : undefined;
+
+  const menuItems: MenuItem[] = [
+    { icon: "📈", label: "Forecast",           action: openForecast ?? (() => {}), disabled: !openForecast },
+    { icon: "⟷",  label: "Related Metrics",    action: openRelated  ?? (() => {}), disabled: !openRelated  },
+    { icon: "🌍", label: "Dimension",           action: openDimension ?? (() => {}), disabled: !openDimension },
+    { icon: "📅", label: "Heatmap",             action: openHeatmap  ?? (() => {}), disabled: !openHeatmap  },
+  ];
+
   const delta = useMemo<number | null>(() => {
     if (rawValue == null || prevRawValue == null) return null;
     if (prevRawValue === 0) return rawValue === 0 ? 0 : 100;
     return ((rawValue - prevRawValue) / Math.abs(prevRawValue)) * 100;
   }, [rawValue, prevRawValue]);
 
-  const trendUp = delta !== null && delta > 0;
-  const trendGood = delta !== null && (higherIsBetter ? trendUp : !trendUp);
+  const trendUp    = delta !== null && delta > 0;
+  const trendGood  = delta !== null && (higherIsBetter ? trendUp : !trendUp);
   const trendColor = delta === null ? undefined : delta === 0 ? undefined : trendGood ? GREEN : RED;
-  const arrow = delta === 0 ? "—" : trendUp ? "↑" : "↓";
+  const arrow      = delta === 0 ? "—" : trendUp ? "↑" : "↓";
 
   return (
     <div
@@ -162,22 +232,24 @@ export function KpiCard({
         padding: "12px 16px",
         textAlign: "center",
         transition: "box-shadow 0.15s",
-        cursor: handleClick ? "pointer" : undefined,
         position: "relative",
         ...style,
       }}
-      title={handleClick ? `${label} — click for forecast` : label}
-      onClick={handleClick}
+      title={label}
     >
-      {handleRelated && (
-        <button
-          className="kpi-related-btn"
-          onClick={handleRelated}
-          title="Show related metrics with high correlation"
-        >
-          ⟷
-        </button>
+      {/* Three-dot menu trigger */}
+      <button
+        className="kpi-menu-btn"
+        onClick={e => { e.stopPropagation(); setMenuOpen(p => !p); }}
+        title="More options"
+      >
+        ⋮
+      </button>
+
+      {menuOpen && (
+        <KpiDropdown items={menuItems} onClose={() => setMenuOpen(false)} />
       )}
+
       <Text style={{ fontSize: 11, opacity: 0.7, display: "block" }}>{label}</Text>
       {isLoading ? (
         <div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
@@ -185,27 +257,13 @@ export function KpiCard({
         </div>
       ) : (
         <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "center",
-              gap: 5,
-              marginTop: 4,
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 5, marginTop: 4 }}>
             <Heading level={3} style={{ margin: 0, color }}>
               {value}
             </Heading>
             {delta !== null && (
               <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: trendColor,
-                  whiteSpace: "nowrap",
-                  lineHeight: 1,
-                }}
+                style={{ fontSize: 11, fontWeight: 700, color: trendColor, whiteSpace: "nowrap", lineHeight: 1 }}
                 title={`vs previous period: ${trendUp ? "+" : ""}${delta.toFixed(1)}%`}
               >
                 {arrow}&thinsp;{Math.abs(delta).toFixed(1)}%

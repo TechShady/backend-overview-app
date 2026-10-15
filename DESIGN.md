@@ -1,4 +1,4 @@
-# Services Overview App — Design Document
+﻿# Backend Overview App — Design Document
 
 ---
 
@@ -91,7 +91,7 @@ The following packages appear in `package.json` but are not imported anywhere in
 
 
 
-The **Services Overview App** is a Dynatrace platform application that provides a comprehensive, multi-tab SRE command center for monitoring, analyzing, and managing service reliability across an entire fleet. It aggregates RED metrics (Rate, Errors, Duration), Kubernetes workload health, dependency topology, SLO error budgets, anomaly detection, blast radius simulation, and capacity planning into a single unified interface.
+The **Backend Overview App** is a Dynatrace platform application that provides a comprehensive, multi-tab SRE command center for monitoring, analyzing, and managing service reliability across an entire fleet. It aggregates RED metrics (Rate, Errors, Duration), Kubernetes workload health, dependency topology, SLO error budgets, anomaly detection, blast radius simulation, and capacity planning into a single unified interface.
 
 ### July 2026 Decision-Intelligence Additions
 
@@ -162,7 +162,7 @@ ui/
 
 ### Header Bar
 A single unified header bar (matching the User Journey & Experience app layout) with the app name on the left and all controls on the right:
-- **App Title**: "Services Overview" displayed as a heading on the left.
+- **App Title**: "Backend Overview" displayed as a heading on the left.
 - **Timeframe**: Labeled selector sets the global timeframe for all queries (default: last 7 days).
 - **Metric-Stream**: Labeled auto-refresh interval selector (Off, 30s, 1m, 5m, 10m) for near-real-time monitoring. Shows a spinner + "Xs ago" timestamp when active.
 - **AI Insights**: Toggle button to open/close the AI analysis panel for the active tab.
@@ -1024,6 +1024,99 @@ Every tab includes an **AI Insights** button that triggers a client-side analysi
 - **Recommendations**: Impact-prioritized action items (high/medium/low)
 
 The analysis uses current tab data to generate contextual observations — no LLM calls; all logic is deterministic and runs in the browser.
+
+---
+
+## AI Features Architecture (October 2026)
+
+### Components
+
+| Component | File | Type | Description |
+|-----------|------|------|-------------|
+| `AIAssist` | `ui/app/components/AIAssist.tsx` | Rule-based | Wraps the existing `analyze*` engine. Renders when `aiAssistEnabled === true` and the header toggle is active. |
+| `DynatraceIntelligence` | `ui/app/components/DynatraceIntelligence.tsx` | Generative (Davis CoPilot) | Calls `davis-copilot:conversations:execute`. Renders when `dtIntelligenceEnabled === true` and the header toggle is active. |
+
+### Settings Persistence
+
+Both feature flags are stored in the user's persistent app state via `useUserAppState` / `useSetUserAppState`:
+
+| Key | Type | Default |
+|-----|------|---------|
+| `aiAssistEnabled` | `boolean` | `false` |
+| `dtIntelligenceEnabled` | `boolean` | `false` |
+
+Settings are read on mount and written immediately on toggle. Changes persist across sessions and devices (stored in Dynatrace App State).
+
+### AI Assist (Rule-Based, Local)
+
+- Pulls the same data already loaded in the active tab — no additional DQL queries.
+- Calls the relevant `analyze*` function (e.g., `analyzeOverview`, `analyzeReliability`) synchronously.
+- Zero network overhead; zero added latency; works without Davis CoPilot scope.
+- The header button is only rendered when `aiAssistEnabled` is `true`; otherwise the button is absent entirely.
+
+### Dynatrace Intelligence (Davis CoPilot Generative)
+
+- Requires scope: `davis-copilot:conversations:execute` (must be present in `app.config.json`).
+- Makes an external API call to Davis CoPilot on each invocation; typical response time 2–5 seconds.
+- The header button is only rendered when `dtIntelligenceEnabled` is `true`.
+
+#### Tab-Aware Prompt Dispatch
+
+**Composite tab key**: `compositeTabKey = "<activeTab>:<activeSubTabLabel>"` (e.g., `"Reliability:MTTR / MTTA"`, `"Detection & Analysis:Baselines"`). The key is computed in `ServicesOverview.tsx` and passed down via `DTIntelligenceContext`.
+
+**Deduplication**: A `prevTabKeyRef` ref stores the last key that triggered a CoPilot call. On each tab/sub-tab navigation the new key is compared; if it differs, the prompt fires. If unchanged (e.g., returning to the same view), no redundant call is made.
+
+**Prompt dispatch**: `buildDTPrompt(compositeKey: string): string` contains a `switch` statement with ~30 `case` entries, one per unique view. Each case returns a prompt focused on the metrics, decisions, and signals relevant to that specific view. Unrecognized keys fall through to a generic fallback prompt.
+
+**Covered views** (15 top-level tabs, ~30 unique composite keys):
+
+```
+Overview
+Summary Details:Service Details
+Summary Details:Request Details
+Metrics:Service Metrics
+Metrics:Process Metrics
+Metrics:K8s Workloads
+Reliability:SLO & Error Budget
+Reliability:MTTR / MTTA
+Reliability:Budget Forecast
+Reliability:Reliability Report
+Quality:Scorecards
+Quality:Service Maturity
+Performance:Endpoint Heatmap
+Performance:Apdex
+Performance:Flame Graph
+Dependencies & Impact:Dependencies
+Dependencies & Impact:Service Flow
+Dependencies & Impact:Blast Radius
+Incidents & Changes:Incident Timeline
+Incidents & Changes:Change Impact
+Incidents & Changes:Deploy Readiness
+Incidents & Changes:On-Call Health
+Detection & Analysis:Anomaly Detection
+Detection & Analysis:Correlation Engine
+Detection & Analysis:Anti-Patterns
+Detection & Analysis:Baselines
+Detection & Analysis:Alert Rules
+Capacity & Sizing:Right-Sizing
+Capacity & Sizing:Traffic Patterns
+Capacity & Sizing:What-If
+Cloud Waste
+Incident Command
+Failure Patterns
+Team Reliability
+Incident Radar
+```
+
+#### Required Scope
+
+Add to `app.config.json` → `scopes`:
+
+```json
+"davis-copilot:conversations:execute"
+```
+
+Without this scope, the `DynatraceIntelligence` component will fail silently (or surface an error in the panel). The toggle will still appear in Settings so users can re-enable it once the scope is granted.
 
 ---
 
